@@ -165,7 +165,17 @@ try {
   await page.goto(new URL('/signin', frontend).href, { waitUntil: 'domcontentloaded' })
   await page.getByTestId('nc-form-signin__email').fill(email)
   await page.getByTestId('nc-form-signin__password').fill(password)
-  await page.getByTestId('nc-form-signin__submit').click()
+  const [signinResponse] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/v1/auth/user/signin'),
+    page.getByTestId('nc-form-signin__submit').click(),
+  ])
+  assert.ok(signinResponse.ok(), 'GUI signin must succeed')
+  const signin = await signinResponse.json()
+  assert.ok(typeof signin.token === 'string' && signin.token.length > 20,
+    'GUI signin must return the current session token')
+  // Login rotates token_version, so the signup JWT can no longer verify saved metadata.
+  token = signin.token
   await page.waitForURL(url => !url.pathname.includes('/signin'), { timeout: 30_000 })
   stage('complete optional first-login onboarding')
   const onboarding = page.getByTestId('nc-onboarding-flow-container')
