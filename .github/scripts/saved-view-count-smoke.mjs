@@ -158,8 +158,23 @@ try {
   await page.getByTestId('nc-form-signin__password').fill(password)
   await page.getByTestId('nc-form-signin__submit').click()
   await page.waitForURL(url => !url.pathname.includes('/signin'), { timeout: 30_000 })
+  stage('complete optional first-login onboarding')
+  const onboarding = page.getByTestId('nc-onboarding-flow-container')
   const skipOnboarding = page.getByTestId('nc-onboarding-flow-skip-button')
-  if (await skipOnboarding.isVisible()) await skipOnboarding.click()
+  const dashboardReady = page.getByTestId('nc-ws-home-topbar-title')
+  await skipOnboarding.or(dashboardReady).first().waitFor({ state: 'visible' })
+  if (await skipOnboarding.isVisible()) {
+    // Skip saves is_new_user=false before hiding onboarding; wait for both effects.
+    const [savedProfile] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'PATCH' &&
+        new URL(response.url()).pathname === '/api/v1/user/profile'),
+      skipOnboarding.click(),
+    ])
+    assert.ok(savedProfile.ok(), 'Onboarding completion must persist successfully')
+    await onboarding.waitFor({ state: 'hidden' })
+  }
+  await dashboardReady.waitFor({ state: 'visible' })
+  stage('open the saved filtered view')
   const viewUrl = new URL(`/nc/${baseId}/${tableId}/${viewId}`, frontend).href
   await page.goto(viewUrl, { waitUntil: 'domcontentloaded' })
 
