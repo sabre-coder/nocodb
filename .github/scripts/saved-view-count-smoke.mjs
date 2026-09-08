@@ -121,6 +121,15 @@ try {
   token = signup.token
   const base = await api('POST', '/api/v2/meta/bases', { title: `Count smoke ${suffix}` })
   const baseId = entityId(base, 'base')
+  const identity = await api('GET', `/api/v1/auth/user/me?base_id=${baseId}`)
+  const baseList = await api('GET', '/api/v2/meta/bases')
+  const listedBase = baseList.list?.find(item => item.id === baseId)
+  console.log(`Fixture role scope: ${JSON.stringify({
+    org_roles: identity.roles ?? null,
+    effective_base_roles: identity.base_roles ?? null,
+    sidebar_project_role: listedBase?.project_role ?? null,
+    sidebar_workspace_role: listedBase?.workspace_role ?? null,
+  })}`)
 
   stage('create three rows and a saved view matching two rows')
   const table = await api('POST', `/api/v2/meta/bases/${baseId}/tables`, {
