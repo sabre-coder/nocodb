@@ -213,7 +213,7 @@ jobs:
             -e NC_TOOL_DIR=/usr/app/data/ -e NC_DISABLE_TELE=true \
             -e NC_SITE_URL=http://127.0.0.1:3000 -e NC_DASHBOARD_URL=http://127.0.0.1:3000 \
             nocodb/nocodb:2026.08.2@sha256:4b760f0d25471fb49707d515f161d9d36b49c88e7ecbe25eded774af385be5a9
-          curl -fsS --retry 40 --retry-connrefused --retry-delay 2 --retry-max-time 120 \
+          curl -fsS --retry 40 --retry-connrefused --retry-all-errors --retry-delay 2 --retry-max-time 120 \
             http://127.0.0.1:8080/api/v1/health > /dev/null
           NODE_ENV=production NUXT_PUBLIC_NC_BACKEND_URL=http://127.0.0.1:3000 \
             HOST=127.0.0.1 PORT=3001 node packages/nc-gui/.output/server/index.mjs \
