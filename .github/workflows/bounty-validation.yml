@@ -107,7 +107,7 @@ jobs:
           fs.symlinkSync(path.join(tools, 'node_modules'), path.join(process.env.GITHUB_WORKSPACE, 'packages/nocodb-sdk/node_modules'), 'dir')
           NODE
 
-      - name: Run the 30 focused view count tests
+      - name: Run the focused view count tests
         run: |
           "$RUNNER_TEMP/bounty-test-tools/node_modules/.bin/vitest" run \
             --config "$RUNNER_TEMP/bounty-test-tools/vitest.config.mjs" \
