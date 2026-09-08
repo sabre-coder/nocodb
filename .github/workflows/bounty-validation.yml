@@ -14,6 +14,16 @@ on:
         required: true
         default: true
         type: boolean
+      focused_tests:
+        description: Run the focused Vue tests
+        required: true
+        default: true
+        type: boolean
+      browser_smoke:
+        description: Build and test the frontend with a disposable real backend
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,7 +44,7 @@ env:
 jobs:
   focused-tests:
     # Standard hosted runners are free for this public fork. Skip if it becomes private.
-    if: github.repository == 'sabre-coder/nocodb' && github.event.repository.private == false
+    if: github.repository == 'sabre-coder/nocodb' && github.event.repository.private == false && inputs.focused_tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -113,7 +123,7 @@ jobs:
           if-no-files-found: ignore
 
   production-build:
-    if: github.repository == 'sabre-coder/nocodb' && github.event.repository.private == false && inputs.full_build
+    if: github.repository == 'sabre-coder/nocodb' && github.event.repository.private == false && (inputs.full_build || inputs.browser_smoke)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -177,6 +187,62 @@ jobs:
         run: |
           # nc-gui does not declare a package.json build script.
           pnpm --filter nc-gui exec nuxt build 2>&1 | tee -a "$RUNNER_TEMP/bounty-validation-build.log"
+
+      - name: Read browser harness from this workflow revision
+        if: inputs.browser_smoke
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: validation
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Install the isolated browser harness
+        if: inputs.browser_smoke
+        run: |
+          npm install --prefix "$RUNNER_TEMP/bounty-browser-tools" --no-audit --no-fund --save-exact playwright@1.63.0
+          "$RUNNER_TEMP/bounty-browser-tools/node_modules/.bin/playwright" install --with-deps chromium
+          cp validation/.github/scripts/saved-view-count-smoke.mjs "$RUNNER_TEMP/bounty-browser-tools/"
+          cp validation/.github/scripts/bounty-local-proxy.mjs "$RUNNER_TEMP/bounty-browser-tools/"
+
+      - name: Start a disposable local backend and the production GUI
+        if: inputs.browser_smoke
+        run: |
+          docker run -d --name bounty-backend -p 127.0.0.1:8080:8080 \
+            --tmpfs /usr/app/data:rw,size=512m,mode=1777 \
+            -e NC_TOOL_DIR=/usr/app/data/ -e NC_DISABLE_TELE=true \
+            -e NC_SITE_URL=http://127.0.0.1:3000 -e NC_DASHBOARD_URL=http://127.0.0.1:3000 \
+            nocodb/nocodb:2026.08.2@sha256:4b760f0d25471fb49707d515f161d9d36b49c88e7ecbe25eded774af385be5a9
+          curl -fsS --retry 40 --retry-connrefused --retry-delay 2 --retry-max-time 120 \
+            http://127.0.0.1:8080/api/v1/health > /dev/null
+          NODE_ENV=production NUXT_PUBLIC_NC_BACKEND_URL=http://127.0.0.1:3000 \
+            HOST=127.0.0.1 PORT=3001 node packages/nc-gui/.output/server/index.mjs \
+            > "$RUNNER_TEMP/bounty-gui.log" 2>&1 &
+          node "$RUNNER_TEMP/bounty-browser-tools/bounty-local-proxy.mjs" \
+            > "$RUNNER_TEMP/bounty-proxy.log" 2>&1 &
+          curl -fsS --retry 20 --retry-connrefused --retry-all-errors --retry-delay 2 --retry-max-time 60 \
+            http://127.0.0.1:3000/signin > /dev/null
+
+      - name: Exercise real saved view counts in Chromium
+        if: inputs.browser_smoke
+        env:
+          FRONTEND_URL: http://127.0.0.1:3000
+          BACKEND_URL: http://127.0.0.1:8080
+          SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/bounty-browser-artifacts
+        run: node "$RUNNER_TEMP/bounty-browser-tools/saved-view-count-smoke.mjs"
+
+      - name: Keep browser screenshots
+        if: always() && inputs.browser_smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: saved-view-record-count-browser-screenshots
+          path: ${{ runner.temp }}/bounty-browser-artifacts/*.png
+          retention-days: 3
+          if-no-files-found: ignore
+
+      - name: Remove disposable backend
+        if: always() && inputs.browser_smoke
+        run: docker rm -f bounty-backend || true
 
       - name: Keep failed production build logs
         if: failure()
